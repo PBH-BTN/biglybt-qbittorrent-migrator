@@ -95,6 +95,7 @@ public class QBittorrent {
                     }
                 }
                 download.recheckData();
+                success++;
             } catch (Exception e) {
                 e.printStackTrace();
                 failed++;
