@@ -81,8 +81,8 @@ public class QBittorrent {
                 if (!qbTorrent.getCategory().isBlank()) {
                     download.setCategory(qbTorrent.getCategory());
                 }
-                download.setDownloadRateLimitBytesPerSecond(qbTorrent.getDlLimit().intValue());
-                download.setUploadRateLimitBytesPerSecond(qbTorrent.getUpLimit().intValue());
+                download.setDownloadRateLimitBytesPerSecond(toRateLimit(qbTorrent.getDlLimit()));
+                download.setUploadRateLimitBytesPerSecond(toRateLimit(qbTorrent.getUpLimit()));
                 TorrentUtils.setDisplayName(((TorrentImpl) torrent).getTorrent(), qbTorrent.getName());
                 TagManager tm = TagManagerFactory.getTagManager();
                 var tagType = tm.getTagType(TagType.TT_DOWNLOAD_MANUAL);
@@ -102,6 +102,20 @@ public class QBittorrent {
             }
         }
         JOptionPane.showMessageDialog(null, "Migrated " + success + " torrents. (" + failed + " fails)");
+    }
+
+    /**
+     * qBittorrent reports -1 for "no speed limit" while BiglyBT expects 0 and
+     * treats a negative value as a real limit. A missing value is mapped to 0
+     * as well, because dl_limit/up_limit are absent from /torrents/info on some
+     * qBittorrent versions. Values beyond int range are clamped rather than
+     * truncated, since truncation would wrap them into a negative limit.
+     */
+    private static int toRateLimit(Long qbLimit) {
+        if (qbLimit == null || qbLimit < 0) {
+            return 0;
+        }
+        return (int) Math.min(qbLimit, Integer.MAX_VALUE);
     }
 
     public byte[] downloadTorrent(String hash) throws IOException {
