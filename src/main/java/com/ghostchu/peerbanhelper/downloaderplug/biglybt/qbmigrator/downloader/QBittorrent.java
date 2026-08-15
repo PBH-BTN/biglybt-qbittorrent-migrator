@@ -16,13 +16,11 @@ import com.google.gson.reflect.TypeToken;
 
 import javax.swing.*;
 import java.io.File;
-import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -35,7 +33,7 @@ public class QBittorrent {
     private final String password;
 
     public QBittorrent(String endpoint, String username, String password) {
-        this.apiEndpoint = endpoint + "/api/v2";
+        this.apiEndpoint = stripTrailingSlash(endpoint) + "/api/v2";
         this.username = username;
         this.password = password;
         CookieManager cm = new CookieManager();
@@ -53,6 +51,19 @@ public class QBittorrent {
         this.httpClient = builder.build();
     }
 
+    /**
+     * An endpoint entered as "http://localhost:8080/" would otherwise become
+     * "http://localhost:8080//api/v2", which qBittorrent rejects. Surrounding
+     * whitespace is dropped for the same reason.
+     */
+    private static String stripTrailingSlash(String endpoint) {
+        String trimmed = endpoint.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
+    }
+
     public void migrate(PluginInterface pif) {
         if (!login()) {
             JOptionPane.showMessageDialog(null, "Failed to login qBittorrent WebUI!");
@@ -68,8 +79,8 @@ public class QBittorrent {
                 if (!qbTorrent.getCategory().isBlank()) {
                     download.setCategory(qbTorrent.getCategory());
                 }
-                download.setDownloadRateLimitBytesPerSecond(qbTorrent.getDlLimit().intValue());
-                download.setUploadRateLimitBytesPerSecond(qbTorrent.getUpLimit().intValue());
+                download.setDownloadRateLimitBytesPerSecond(toRateLimit(qbTorrent.getDlLimit()));
+                download.setUploadRateLimitBytesPerSecond(toRateLimit(qbTorrent.getUpLimit()));
                 TorrentUtils.setDisplayName(((TorrentImpl) torrent).getTorrent(), qbTorrent.getName());
                 TagManager tm = TagManagerFactory.getTagManager();
                 var tagType = tm.getTagType(TagType.TT_DOWNLOAD_MANUAL);
@@ -82,6 +93,7 @@ public class QBittorrent {
                     }
                 }
                 download.recheckData();
+                success++;
             } catch (Exception e) {
                 e.printStackTrace();
                 failed++;
@@ -90,17 +102,32 @@ public class QBittorrent {
         JOptionPane.showMessageDialog(null, "Migrated " + success + " torrents. (" + failed + " fails)");
     }
 
-    public byte[] downloadTorrent(String hash) throws IOException {
-        File file = Files.createTempFile("bbt-pbh-qbmigrator", ".torrent").toFile();
-        if (!file.exists()) file.createNewFile();
-        file.deleteOnExit();
+    /**
+     * qBittorrent reports -1 for "no speed limit" while BiglyBT expects 0 and
+     * treats a negative value as a real limit. A missing value is mapped to 0
+     * as well, because dl_limit/up_limit are absent from /torrents/info on some
+     * qBittorrent versions. Values beyond int range are clamped rather than
+     * truncated, since truncation would wrap them into a negative limit.
+     */
+    private static int toRateLimit(Long qbLimit) {
+        if (qbLimit == null || qbLimit < 0) {
+            return 0;
+        }
+        return (int) Math.min(qbLimit, Integer.MAX_VALUE);
+    }
+
+    public byte[] downloadTorrent(String hash) {
+        HttpResponse<byte[]> resp;
         try {
-            var resp = httpClient.send(MutableRequest.GET(apiEndpoint + "/torrents/export?hash=" + hash)
+            resp = httpClient.send(MutableRequest.GET(apiEndpoint + "/torrents/export?hash=" + hash)
                     , HttpResponse.BodyHandlers.ofByteArray());
-            return resp.body();
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+        if (resp.statusCode() != 200) {
+            throw new IllegalStateException("Unable to export torrent " + hash + ", HTTP " + resp.statusCode());
+        }
+        return resp.body();
     }
 
     public List<QBittorrentTorrentMeta> getTorrentsMeta() {
