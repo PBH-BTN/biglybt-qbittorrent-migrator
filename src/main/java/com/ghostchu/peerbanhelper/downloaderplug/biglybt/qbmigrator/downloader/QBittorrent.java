@@ -35,7 +35,7 @@ public class QBittorrent {
     private final String password;
 
     public QBittorrent(String endpoint, String username, String password) {
-        this.apiEndpoint = endpoint + "/api/v2";
+        this.apiEndpoint = stripTrailingSlash(endpoint) + "/api/v2";
         this.username = username;
         this.password = password;
         CookieManager cm = new CookieManager();
@@ -51,6 +51,19 @@ public class QBittorrent {
                 .requestTimeout(Duration.of(30, ChronoUnit.SECONDS))
                 .cookieHandler(cm);
         this.httpClient = builder.build();
+    }
+
+    /**
+     * An endpoint entered as "http://localhost:8080/" would otherwise become
+     * "http://localhost:8080//api/v2", which qBittorrent rejects. Surrounding
+     * whitespace is dropped for the same reason.
+     */
+    private static String stripTrailingSlash(String endpoint) {
+        String trimmed = endpoint.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     public void migrate(PluginInterface pif) {
