@@ -16,13 +16,11 @@ import com.google.gson.reflect.TypeToken;
 
 import javax.swing.*;
 import java.io.File;
-import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -118,17 +116,18 @@ public class QBittorrent {
         return (int) Math.min(qbLimit, Integer.MAX_VALUE);
     }
 
-    public byte[] downloadTorrent(String hash) throws IOException {
-        File file = Files.createTempFile("bbt-pbh-qbmigrator", ".torrent").toFile();
-        if (!file.exists()) file.createNewFile();
-        file.deleteOnExit();
+    public byte[] downloadTorrent(String hash) {
+        HttpResponse<byte[]> resp;
         try {
-            var resp = httpClient.send(MutableRequest.GET(apiEndpoint + "/torrents/export?hash=" + hash)
+            resp = httpClient.send(MutableRequest.GET(apiEndpoint + "/torrents/export?hash=" + hash)
                     , HttpResponse.BodyHandlers.ofByteArray());
-            return resp.body();
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+        if (resp.statusCode() != 200) {
+            throw new IllegalStateException("Unable to export torrent " + hash + ", HTTP " + resp.statusCode());
+        }
+        return resp.body();
     }
 
     public List<QBittorrentTorrentMeta> getTorrentsMeta() {
